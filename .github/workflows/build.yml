@@ -1,0 +1,38 @@
+name: Build
+on:
+  push:
+    branches:
+      - develop
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+jobs:
+  build:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/configure-pages@v5
+      - run: |
+          set -euo pipefail
+          pushd charts/
+          for item in $(ls); do
+            pushd ${item}
+            helm dependency update
+            helm package -d ../../dist/ ./
+            popd
+          done
+          popd
+          helm repo index dist/
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+      - id: deployment
+        uses: actions/deploy-pages@v4
