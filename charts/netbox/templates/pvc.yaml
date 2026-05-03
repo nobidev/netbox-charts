@@ -10,6 +10,7 @@ metadata:
   {{- $annotations := include "common.tplvalues.merge" ( dict "values" ( list .Values.persistence.annotations .Values.commonAnnotations ) "context" . ) }}
   annotations: {{- include "common.tplvalues.render" ( dict "value" $annotations "context" $) | nindent 4 }}
   {{- end }}
+{{- $exists := lookup "v1" "PersistentVolumeClaim" (include "common.names.namespace" .) (printf "%s-media" (include "common.names.fullname" .)) }}
 spec:
   accessModes:
   - {{ .Values.persistence.accessMode | quote }}
@@ -20,6 +21,10 @@ spec:
   selector: {{- include "common.tplvalues.render" (dict "value" .Values.persistence.selector "context" $) | nindent 4 }}
   {{- end }}
   {{- include "common.storage.class" (dict "persistence" .Values.persistence "global" .Values.global) | nindent 2 }}
+  {{- if $exists }}
+  volumeMode: {{ (index $exists.spec "volumeMode") | quote }}
+  volumeName: {{ (index $exists.spec "volumeName") | quote }}
+  {{- end }}
 {{- end }}
 {{- if and .Values.reportsPersistence.enabled (not .Values.reportsPersistence.existingClaim) }}
 ---
@@ -33,6 +38,7 @@ metadata:
   {{- $annotations := include "common.tplvalues.merge" ( dict "values" ( list .Values.reportsPersistence.annotations .Values.commonAnnotations ) "context" . ) }}
   annotations: {{- include "common.tplvalues.render" ( dict "value" $annotations "context" $) | nindent 4 }}
   {{- end }}
+{{- $exists := lookup "v1" "PersistentVolumeClaim" (include "common.names.namespace" .) (printf "%s-reports" (include "common.names.fullname" .)) }}
 spec:
   accessModes:
     - {{ .Values.reportsPersistence.accessMode | quote }}
@@ -43,6 +49,10 @@ spec:
   selector: {{- include "common.tplvalues.render" (dict "value" .Values.reportsPersistence.selector "context" $) | nindent 4 }}
   {{- end }}
   {{- include "common.storage.class" (dict "persistence" .Values.reportsPersistence "global" .Values.global) | nindent 2 }}
+  {{- if $exists }}
+  volumeMode: {{ (index $exists.spec "volumeMode") | quote }}
+  volumeName: {{ (index $exists.spec "volumeName") | quote }}
+  {{- end }}
 {{- end }}
 {{- if and .Values.scriptsPersistence.enabled (not .Values.scriptsPersistence.existingClaim) }}
 ---
@@ -56,6 +66,7 @@ metadata:
   {{- $annotations := include "common.tplvalues.merge" ( dict "values" ( list .Values.scriptsPersistence.annotations .Values.commonAnnotations ) "context" . ) }}
   annotations: {{- include "common.tplvalues.render" ( dict "value" $annotations "context" $) | nindent 4 }}
   {{- end }}
+{{- $exists := lookup "v1" "PersistentVolumeClaim" (include "common.names.namespace" .) (printf "%s-scripts" (include "common.names.fullname" .)) }}
 spec:
   accessModes:
     - {{ .Values.scriptsPersistence.accessMode | quote }}
@@ -66,4 +77,8 @@ spec:
   selector: {{- include "common.tplvalues.render" (dict "value" .Values.scriptsPersistence.selector "context" $) | nindent 4 }}
   {{- end }}
   {{- include "common.storage.class" (dict "persistence" .Values.scriptsPersistence "global" .Values.global) | nindent 2 }}
+  {{- if $exists }}
+  volumeMode: {{ (index $exists.spec "volumeMode") | quote }}
+  volumeName: {{ (index $exists.spec "volumeName") | quote }}
+  {{- end }}
 {{- end }}
