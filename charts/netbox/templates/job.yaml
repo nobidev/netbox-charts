@@ -1,0 +1,161 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "common.names.fullname" . }}-migrate-{{ .Release.Revision }}
+  namespace: {{ include "common.names.namespace" . | quote }}
+  labels: {{- include "common.labels.standard" ( dict "customLabels" .Values.commonLabels "context" $ ) | nindent 4 }}
+    app.kubernetes.io/component: netbox
+  {{- if .Values.commonAnnotations }}
+  annotations: {{- include "common.tplvalues.render" ( dict "value" .Values.commonAnnotations "context" $ ) | nindent 4 }}
+  {{- end }}
+spec:
+  template:
+    metadata:
+      annotations:
+        {{- if .Values.podAnnotations }}
+        {{- include "common.tplvalues.render" ( dict "value" .Values.podAnnotations "context" $ ) | nindent 8 }}
+        {{- end }}
+        checksum/config: {{ include "common.utils.checksumTemplate" (dict "path" "/configmap.yaml" "context" $) }}
+        {{- if (not .Values.existingSecret) }}
+        checksum/secret: {{ include "common.utils.checksumTemplate" (dict "path" "/secret.yaml" "context" $) }}
+        {{- end }}
+      labels: {{- include "common.labels.standard" ( dict "customLabels" .Values.podLabels "context" $ ) | nindent 8 }}
+        app.kubernetes.io/component: netbox
+    spec:
+      {{- include "common.images.renderPullSecrets" (dict "images" (list .Values.image) "context" $) | nindent 6 }}
+      serviceAccountName: {{ include "netbox.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.automountServiceAccountToken }}
+      {{- if .Values.podSecurityContext.enabled }}
+      securityContext: {{- include "common.compatibility.renderSecurityContext" (dict "secContext" .Values.podSecurityContext "context" $) | nindent 8 }}
+      {{- end }}
+      restartPolicy: Never
+      containers:
+      - name: migrate
+        {{- if .Values.securityContext.enabled }}
+        securityContext: {{- include "common.compatibility.renderSecurityContext" (dict "secContext" .Values.securityContext "context" $) | nindent 10 }}
+        {{- end }}
+        image: {{ include "netbox.image" . | quote }}
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        command:
+          - python3
+          - manage.py
+          - migrate
+        env:
+        - name: SUPERUSER_NAME
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "common.secrets.name" (dict "existingSecret" .Values.superuser.existingSecret "defaultNameSuffix" "superuser" "context" $) }}
+              key: username
+        - name: SUPERUSER_EMAIL
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "common.secrets.name" (dict "existingSecret" .Values.superuser.existingSecret "defaultNameSuffix" "superuser" "context" $) }}
+              key: email
+        {{- if .Values.extraEnvs }}
+        {{- include "common.tplvalues.render" (dict "value" .Values.extraEnvs "context" $) | nindent 8 }}
+        {{- end }}
+        {{- if or .Values.extraEnvVarsCM .Values.extraEnvVarsSecret }}
+        envFrom:
+          {{- if .Values.extraEnvVarsCM }}
+          - configMapRef:
+              name: {{ include "common.tplvalues.render" (dict "value" .Values.extraEnvVarsCM "context" $) }}
+          {{- end }}
+          {{- if .Values.extraEnvVarsSecret }}
+          - secretRef:
+              name: {{ include "common.tplvalues.render" (dict "value" .Values.extraEnvVarsSecret "context" $) }}
+          {{- end }}
+        {{- end }}
+        volumeMounts:
+        - name: config
+          mountPath: /etc/netbox/config/configuration.py
+          subPath: configuration.py
+          readOnly: true
+        - name: config
+          mountPath: /run/config/netbox
+          readOnly: true
+        - name: secrets
+          mountPath: /run/secrets/netbox
+          readOnly: true
+        {{- include "netbox.extraConfig.volumeMounts" . | nindent 8 }}
+        - name: secrets
+          mountPath: /run/secrets/superuser_password
+          subPath: superuser_password
+          readOnly: true
+        - name: secrets
+          mountPath: /run/secrets/superuser_api_token
+          subPath: superuser_api_token
+          readOnly: true
+      volumes:
+      - name: config
+        configMap:
+          name: {{ include "common.names.fullname" . }}
+      - name: secrets
+        projected:
+          sources:
+          - secret:
+              name: {{ include "common.secrets.name" (dict "existingSecret" .Values.existingSecret "defaultNameSuffix" "config" "context" $) }}
+              items:
+              - key: secret_key
+                path: secret_key
+              {{- if has "netbox.authentication.LDAPBackend" .Values.remoteAuth.backends }}
+              - key: ldap_bind_password
+                path: ldap_bind_password
+              {{- end }}
+          - secret:
+              name: {{ include "common.secrets.name" (dict "existingSecret" .Values.existingSecret "defaultNameSuffix" "config" "context" $) }}
+              optional: true
+              items:
+              - key: api_token_peppers
+                path: api_token_peppers
+          - secret:
+              name: {{ include "common.secrets.name" (dict "existingSecret" (default .Values.existingSecret .Values.email.existingSecretName) "defaultNameSuffix" "config" "context" $) }}
+              items:
+              - key: {{ include "netbox.email.secretKey" . | quote }}
+                path: email_password
+          - secret:
+              name: {{ include "common.secrets.name" (dict "existingSecret" .Values.superuser.existingSecret "defaultNameSuffix" "superuser" "context" $) }}
+              items:
+              - key: password
+                path: superuser_password
+              - key: api_token
+                path: superuser_api_token
+          - secret:
+              name: {{ include "netbox.postgresql.secret" . | quote }}
+              items:
+              - key: {{ include "netbox.postgresql.secretKey" . | quote }}
+                path: db_password
+          - secret:
+              name: {{ include "netbox.tasksDatabase.secret" . | quote }}
+              items:
+              - key: {{ include "netbox.tasksDatabase.secretKey" . | quote }}
+                path: tasks_password
+          - secret:
+              name: {{ include "netbox.cachingDatabase.secret" . | quote }}
+              items:
+              - key: {{ include "netbox.cachingDatabase.secretKey" . | quote }}
+                path: cache_password
+      {{- include "netbox.extraConfig.volumes" . | nindent 6 }}
+      {{- if .Values.nodeSelector }}
+      nodeSelector: {{- include "common.tplvalues.render" ( dict "value" .Values.nodeSelector "context" $) | nindent 8 }}
+      {{- end }}
+      {{- if .Values.affinity }}
+      affinity: {{- include "common.tplvalues.render" ( dict "value" .Values.affinity "context" $) | nindent 8 }}
+      {{- end }}
+      {{- if .Values.tolerations }}
+      tolerations: {{- include "common.tplvalues.render" (dict "value" .Values.tolerations "context" .) | nindent 8 }}
+      {{- end }}
+      {{- if .Values.hostAliases }}
+      hostAliases: {{- include "common.tplvalues.render" (dict "value" .Values.hostAliases "context" $) | nindent 8 }}
+      {{- end }}
+      {{- if .Values.priorityClassName }}
+      priorityClassName: {{ .Values.priorityClassName | quote }}
+      {{- end }}
+      {{- if .Values.schedulerName }}
+      schedulerName: {{ .Values.schedulerName | quote }}
+      {{- end }}
+      {{- if .Values.topologySpreadConstraints }}
+      topologySpreadConstraints: {{- include "common.tplvalues.render" (dict "value" .Values.topologySpreadConstraints "context" .) | nindent 8 }}
+      {{- end }}
+      {{- if .Values.terminationGracePeriodSeconds }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      {{- end }}
